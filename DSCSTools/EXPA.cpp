@@ -18,6 +18,7 @@
 #include <boost/tokenizer.hpp>
 
 #include "../libs/csv-parser/parser.hpp"
+#include "boost/property_tree/ptree_fwd.hpp"
 
 #define PADDING_BYTE (unsigned char) 0xCC
 
@@ -33,8 +34,34 @@ namespace dscstools {
 
 			uint32_t nameSize() { return *reinterpret_cast<uint32_t*>(tablePtr); }
 			char* name() { return reinterpret_cast<char*>(tablePtr + 4); }
-			uint32_t entrySize() { return *reinterpret_cast<uint32_t*>(tablePtr + nameSize() + 4); }
-			uint32_t entryCount() { return *reinterpret_cast<uint32_t*>(tablePtr + nameSize() + 8); }
+			boost::property_tree::ptree getElements() {
+				boost::property_tree::ptree tree;
+				
+				for(int32_t i = 0; i < elementCount(); i++) {
+					uint32_t type = *reinterpret_cast<uint32_t*>(tablePtr + nameSize() + 8 + i * 4);
+					switch (type) {
+						case 2:
+						case 9:
+							tree.add("int " + std::to_string(i), "int"); break; 
+						case 4:
+						tree.add("byte " + std::to_string(i), "byte"); break; 
+						case 5:
+							tree.add("float " + std::to_string(i), "float"); break; 
+						case 7:
+						case 8:
+							tree.add("string " + std::to_string(i), "string"); break;
+							default:
+							std::cout << type << "\n";
+					
+					}
+				}
+				return tree;
+			}
+			uint32_t elementCount() { return *reinterpret_cast<uint32_t*>(tablePtr + nameSize() + 4);}
+			uint32_t entrySize() { return *reinterpret_cast<uint32_t*>(tablePtr + nameSize() + 8 + elementCount() * 4); }
+			uint32_t entryCount() { return *reinterpret_cast<uint32_t*>(tablePtr + nameSize() + 12 + elementCount() * 4); }
+			uint32_t totalSize() { return nameSize() + 16 + elementCount() * 4; }
+			
 		};
 
 		struct EXPATableHeader {
@@ -189,16 +216,20 @@ namespace dscstools {
 			uint32_t offset = 8;
 
 			for (uint32_t i = 0; i < header->numTables; i++) {
+
+				offset += align(offset, 8);
 				EXPATable table = { data.get() + offset };
 				tables.push_back(table);
 
-				offset += table.nameSize() + 0x0C;
+				offset += table.totalSize();
 
-				if (table.nameSize() % 8 == 0)
-					offset += 4;
+			//if (table.nameSize() % 8 == 0)
+			//		offset += 4;
 
 				offset += table.entryCount() * (table.entrySize() + align(table.entrySize(), 8));
 			}
+
+			offset += align(offset, 8);
 
 			CHNKHeader* chunkHeader = reinterpret_cast<CHNKHeader*>(data.get() + offset);
 			offset += 8;
@@ -212,12 +243,13 @@ namespace dscstools {
 				offset += (size + 8);
 			}
 
-			boost::property_tree::ptree format = getStructureFile(source);
+			//boost::property_tree::ptree format = getStructureFile(source);
 			auto filename = source.filename().string();
 
 			for (auto table : tables) {
-				uint32_t tableHeaderSize = 0x0C + table.nameSize() + align(table.nameSize() + 4LL, 8);
-				const auto& formatValue = matchStructureName(format, table.name(), filename);
+
+				uint32_t tableHeaderSize = table.totalSize();
+				const auto& formatValue = table.getElements(); //matchStructureName(format, table.name(), filename);
 
 				std::filesystem::path outputPath = target / source.filename() / (table.name() + std::string(".csv"));
 				if (outputPath.has_parent_path())
@@ -240,6 +272,8 @@ namespace dscstools {
 				for (uint32_t i = 0; i < table.entryCount(); i++) {
 					bool first = true;
 					char* localOffset = table.tablePtr + i * (table.entrySize() + align(table.entrySize(), 8)) + tableHeaderSize;
+
+					localOffset += align((uint64_t)localOffset, 8);
 
 					for (auto var : formatValue) {
 						if (first)

@@ -13,6 +13,7 @@
 
 #include "../libs/doboz/Compressor.h"
 #include "../libs/doboz/Decompressor.h"
+#include "lz4.h"
 
 namespace dscstools {
 	namespace mdb1 {
@@ -35,11 +36,11 @@ namespace dscstools {
 		// helper structures
 		struct MDB1Header {
 			uint32_t magicValue;
-			uint16_t fileEntryCount;
-			uint16_t fileNameCount;
+			uint32_t fileEntryCount;
+			uint32_t fileNameCount;
 			uint32_t dataEntryCount;
-			uint32_t dataStart;
-			uint32_t totalSize;
+			uint64_t dataStart;
+			uint64_t totalSize;
 		};
 
 		struct TreeNode {
@@ -101,7 +102,7 @@ namespace dscstools {
 			mdb1_ifstream input(source);
 
 			MDB1Header header;
-			input.read(reinterpret_cast<char*>(&header), 0x14);
+			input.read(reinterpret_cast<char*>(&header), sizeof(MDB1Header));
 
 			if (header.magicValue == MDB1_CRYPTED_MAGIC_VALUE)
 				info.status = encrypted;
@@ -128,7 +129,7 @@ namespace dscstools {
 				FileInfo fileInfo;
 				fileInfo.file = fileEntries[i];
 				fileInfo.name = nameEntries[i];
-				if (fileInfo.file.compareBit != 0xFFFF && fileInfo.file.dataId != 0xFFFF)
+				if (fileInfo.file.compareBit != 0xFFFFFFFF && fileInfo.file.dataId != 0xFFFFFFFF)
 					fileInfo.data = dataEntries[fileEntries[i].dataId];
 
 				info.fileInfo.push_back(fileInfo);
@@ -143,10 +144,10 @@ namespace dscstools {
 
 			std::replace(fileName.begin(), fileName.end(), '/', '\\');
 
-			char name[0x41];
+			char name[0x81];
 			strncpy(name, extension.c_str(), 4);
-			strncpy(name + 4, fileName.c_str(), 0x3C);
-			name[0x40] = 0; // prevent overflow
+			strncpy(name + 4, fileName.c_str(), 0x7C);
+			name[0x80] = 0; // prevent overflow
 
 			return std::string(name);
 		}
@@ -256,7 +257,7 @@ namespace dscstools {
 			mdb1_ifstream input(source);
 			doboz::Decompressor decomp;
 
-			if (fileInfo.file.compareBit == 0xFFFF || fileInfo.file.dataId == 0xFFFF)
+			if (fileInfo.file.compareBit == 0xFFFFFFFF || fileInfo.file.dataId == 0xFFFFFFFF)
 				return;
 
 			DataEntry data = fileInfo.data;
@@ -270,15 +271,19 @@ namespace dscstools {
 			auto outputArr = std::make_unique<char[]>(outputSize);
 			input.seekg(data.offset + offset);
 
+			std::cout << fileInfo.name.toString() << " " << fileInfo.data.offset << " " << fileInfo.data.compSize << " " << fileInfo.data.size << " " << fileInfo.file.dataId << "\n";
+
 			if (data.compSize == data.size || !decompress)
 				input.read(outputArr.get(), outputSize);
 			else {
 				auto dataArr = std::make_unique<char[]>(data.compSize);
 				input.read(dataArr.get(), data.compSize);
-				doboz::Result result = decomp.decompress(dataArr.get(), data.compSize, outputArr.get(), data.size);
+				//doboz::Result result = decomp.decompress(dataArr.get(), data.compSize, outputArr.get(), data.size);
 
-				if (result != doboz::RESULT_OK)
-					throw std::runtime_error("Error while decompressing '" + fileInfo.name.toString() + "'. doboz error code : " + std::to_string(result));
+				//if (result != doboz::RESULT_OK)
+				//	throw std::runtime_error("Error while decompressing '" + fileInfo.name.toString() + "'. doboz error code : " + std::to_string(result));
+
+				LZ4_decompress_safe(dataArr.get(), outputArr.get(), data.compSize, data.size);
 			}
 
 			output.write(outputArr.get(), outputSize);
@@ -459,12 +464,15 @@ namespace dscstools {
 
 				if (compress >= normal) {
 					doboz::Compressor comp;
-					size_t destSize;
-					auto outputData = std::make_unique<char[]>(comp.getMaxCompressedSize(length));
-					doboz::Result res = comp.compress(data.get(), length, outputData.get(), comp.getMaxCompressedSize(length), destSize);
+					//size_t destSize;
+					//auto outputData = std::make_unique<char[]>(comp.getMaxCompressedSize(length));
+					//doboz::Result res = comp.compress(data.get(), length, outputData.get(), comp.getMaxCompressedSize(length), destSize);
 
-					if (res != doboz::RESULT_OK)
-						throw std::runtime_error("Error: something went wrong while compressing, doboz error code: " + std::to_string(res));
+					auto outputData = std::make_unique<char[]>(LZ4_compressBound(length));
+					auto destSize = LZ4_compress_default(data.get(), outputData.get(), length, LZ4_compressBound(length));
+
+					//if (res != doboz::RESULT_OK)
+					//	throw std::runtime_error("Error: something went wrong while compressing, doboz error code: " + std::to_string(res));
 
 					if (destSize + 4 < static_cast<size_t>(length))
 						return { (uint32_t)length, (uint32_t)destSize, static_cast<uint32_t>(crc.checksum()), std::move(outputData) };
@@ -520,10 +528,10 @@ namespace dscstools {
 
 			mdb1_ofstream output(target, doCrypt);
 
-			size_t dataStart = 0x14 + (1 + files.size()) * 0x08 + (1 + files.size()) * 0x40 + (files.size()) * 0x0C;
-			MDB1Header header = { MDB1_MAGIC_VALUE, (uint16_t)(files.size() + 1), (uint16_t)(files.size() + 1), (uint32_t)files.size(), (uint32_t)dataStart };
+			size_t dataStart = sizeof(MDB1Header) + (1 + files.size()) * sizeof(FileEntry) + (1 + files.size()) * sizeof(FileNameEntry) + (files.size()) * sizeof(DataEntry);
+			MDB1Header header = { MDB1_MAGIC_VALUE, (uint32_t)(files.size() + 1), (uint32_t)(files.size() + 1), (uint32_t)files.size(), (uint32_t)dataStart};
 
-			header1[0] = { 0xFFFF, 0xFFFF, 0, 1 };
+			header1[0] = { 0xFFFFFFFF, 0xFFFFFFFF, 0, 1 };
 			header2[0] = FileNameEntry();
 
 			uint32_t fileCount = 0;
@@ -581,14 +589,14 @@ namespace dscstools {
 			progressStream << "Writing and compressing files complete." << std::endl;
 
 			// write file table and header
-			output.seekp(0x14);
+			output.seekp(sizeof(MDB1Header));
 
 			for (auto entry : header1)
-				output.write(reinterpret_cast<char*>(&entry), 0x08);
+				output.write(reinterpret_cast<char*>(&entry), sizeof(entry));
 			for (auto entry : header2)
-				output.write(reinterpret_cast<char*>(&entry), 0x40);
+				output.write(reinterpret_cast<char*>(&entry), sizeof(entry));
 			for (auto entry : header3)
-				output.write(reinterpret_cast<char*>(&entry), 0x0C);
+				output.write(reinterpret_cast<char*>(&entry), sizeof(entry));
 
 			output.seekp(0x00);
 			output.seekp(0, std::ios::end);
@@ -597,7 +605,7 @@ namespace dscstools {
 
 			header.totalSize = (uint32_t)length;
 			header.dataEntryCount = (uint32_t)header3.size();
-			output.write(reinterpret_cast<char*>(&header), 0x14);
+			output.write(reinterpret_cast<char*>(&header), sizeof(header));
 
 			if (!output.good())
 				throw std::runtime_error("Error: something went wrong with the output stream.");
