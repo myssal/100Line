@@ -13,7 +13,7 @@
 
 #include "../libs/doboz/Compressor.h"
 #include "../libs/doboz/Decompressor.h"
-#include "lz4.h"
+#include "../libs/lz4/lz4.h"
 
 namespace dscstools {
 	namespace mdb1 {
