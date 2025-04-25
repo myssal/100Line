@@ -31,5 +31,4 @@ jobs:
       with:
         name: 100Line
         path: |
-          build/Release/*.exe
-          build/*.exe
+          build
