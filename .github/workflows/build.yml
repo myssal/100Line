@@ -2,14 +2,14 @@ name: Build CLI
 
 on:
   push:
-    branches: [main]
+    branches: [hundred-line]
   pull_request:
-    branches: [main]
-  workflow_dispatch:  # Enables manual runs
+    branches: [hundred-line]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: windows-latest  # or ubuntu-latest for Linux
+    runs-on: windows-latest 
 
     steps:
     - name: Checkout code
