@@ -20,6 +20,8 @@ option(BUILD_SHARED_LIBS "Build Using Shared Libs" OFF)
 # --- Libraries ---
 # doboz
 add_subdirectory("libs/doboz")
+# lz4
+add_subdirectory("libs/lz4")
 
 # boost
 if(WIN32)

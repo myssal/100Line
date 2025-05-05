@@ -13,15 +13,15 @@ namespace dscstools {
 		enum ArchiveStatus { encrypted, decrypted, invalid };
 
 		struct FileEntry {
-			uint16_t compareBit;
-			uint16_t dataId;
-			uint16_t left;
-			uint16_t right;
+			uint32_t compareBit;
+			uint32_t dataId;
+			uint32_t left;
+			uint32_t right;
 		};
 
 		struct FileNameEntry {
 			char extension[4];
-			char name[0x3C];
+			char name[0x7C];
 
 			const std::string toString() {
 				std::string str(name);
@@ -38,9 +38,9 @@ namespace dscstools {
 		};
 
 		struct DataEntry {
-			uint32_t offset;
-			uint32_t size;
-			uint32_t compSize;
+			uint64_t offset;
+			uint64_t size;
+			uint64_t compSize;
 		};
 
 		struct FileInfo {

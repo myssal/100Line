@@ -15,7 +15,7 @@ target_include_directories(DSCSTools
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 
-target_link_libraries(DSCSTools PUBLIC doboz Boost::property_tree Boost::multiprecision Boost::crc Boost::regex Boost::asio)
+target_link_libraries(DSCSTools PUBLIC doboz lz4 Boost::property_tree Boost::multiprecision Boost::crc Boost::regex Boost::asio)
 
 # Install into /target/ folder
 install (TARGETS DSCSTools 
